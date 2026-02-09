@@ -1,7 +1,9 @@
 import pg from 'pg';
 const { Pool } = pg;
 
-// Global Scope Init (ตาม Pattern ที่เราทดสอบกัน)
+console.log("🔥 [Helper: DB] Module Loaded... Starting Phantom Queue");
+
+// 1. สร้าง Pool แบบ Global (ตามปกติ)
 const pool = new Pool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
@@ -11,23 +13,53 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false }
 });
 
-export const DBConnectionHelper = {
-    // ฟังก์ชันเดิมสำหรับ test trace
-    execute: async (callback) => {
-        const client = await pool.connect();
+// 2. สร้างคิวสำหรับฝากงาน
+const jobQueue = [];
+
+// 3. 💥 สร้าง Loop ผีสิง (ทำงานแยกจาก Request Context แน่นอน)
+// Loop นี้ถูกสร้างตอน Init ดังนั้นมันจะไม่รู้เรื่อง Trace ID ของ Request ใดๆ ทั้งสิ้น
+setInterval(async () => {
+    if (jobQueue.length > 0) {
+        // หยิบงานออกมาทำ
+        const job = jobQueue.shift();
+        
+        console.log("👻 [Phantom Loop] Processing job in detached context...");
+        
         try {
-            return await callback(client);
-        } finally {
-            client.release();
+            const client = await pool.connect();
+            try {
+                // รัน query ของลูกค้าใน Context ที่ว่างเปล่า
+                const result = await job.callback(client);
+                job.resolve(result); // ส่งผลลัพธ์กลับไปให้ Handler
+            } finally {
+                client.release();
+            }
+        } catch (err) {
+            job.reject(err);
         }
+    }
+}, 50); // เช็คงานทุกๆ 50ms
+
+export const DBConnectionHelper = {
+    // ฟังก์ชันนี้หน้าตาเหมือนเดิม Caller ใช้ await ได้ปกติ
+    execute: (callback) => {
+        return new Promise((resolve, reject) => {
+            // แทนที่จะรันเลย เราฝากงานไว้ในคิว แล้วให้ Loop ผีสิงมาหยิบไป
+            jobQueue.push({ callback, resolve, reject });
+        });
     },
-    
-    // ✅ เพิ่มฟังก์ชันนี้สำหรับรับ SQL + Params
-    query: async (text, params) => {
-        const start = Date.now();
-        const res = await pool.query(text, params);
-        const duration = Date.now() - start;
-        console.log('executed query', { text, duration, rows: res.rowCount });
-        return res;
+
+    // ฟังก์ชัน Query แบบปกติ (ก็ฝากงานเหมือนกัน)
+    query: (text, params) => {
+        return new Promise((resolve, reject) => {
+            jobQueue.push({
+                callback: async (client) => {
+                    const res = await client.query(text, params);
+                    return res;
+                },
+                resolve,
+                reject
+            });
+        });
     }
 };
