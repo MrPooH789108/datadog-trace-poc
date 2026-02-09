@@ -1,0 +1,173 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Datadog Trace POC (Full Network Stack)
+
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: nodejs20.x
+    MemorySize: 512
+    Environment:
+      Variables:
+        DD_ENV: serverless
+        DD_SERVICE: layered-bad-service
+        DB_HOST: !GetAtt AuroraCluster.Endpoint.Address
+        DB_USER: 
+          !Join [ "", [ "{{resolve:secretsmanager:", !Ref DBSecret, ":SecretString:username}}" ] ]
+        DB_PASSWORD: 
+          !Join [ "", [ "{{resolve:secretsmanager:", !Ref DBSecret, ":SecretString:password}}" ] ]
+        DB_NAME: "postgres"
+        DB_PORT: "5432"
+
+Resources:
+  # ==================================================================
+  # 1. NETWORK INFRASTRUCTURE (สร้าง VPC ใหม่เลย)
+  # ==================================================================
+  POCVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: DatadogPOC-VPC
+
+  POCInternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  POCVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref POCVPC
+      InternetGatewayId: !Ref POCInternetGateway
+
+  # Subnet 1 (Zone A)
+  POCSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref POCVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      MapPublicIpOnLaunch: true
+
+  # Subnet 2 (Zone B - RDS บังคับต้องมี 2 subnets ต่าง Zone)
+  POCSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref POCVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      MapPublicIpOnLaunch: true
+
+  # Route Table (เพื่อให้ Subnet ออกเน็ตได้)
+  POCRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref POCVPC
+
+  POCRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref POCRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref POCInternetGateway
+
+  POCSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref POCSubnet1
+      RouteTableId: !Ref POCRouteTable
+
+  POCSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref POCSubnet2
+      RouteTableId: !Ref POCRouteTable
+
+  # ==================================================================
+  # 2. DATABASE RESOURCES
+  # ==================================================================
+  # กลุ่ม Subnet สำหรับ RDS
+  POCDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnets for Aurora POC
+      SubnetIds:
+        - !Ref POCSubnet1
+        - !Ref POCSubnet2
+
+  # Security Group
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow PostgreSQL access
+      VpcId: !Ref POCVPC # <--- ระบุ VPC ที่เราเพิ่งสร้าง
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+
+  DBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "AuroraSecret-${AWS::StackName}"
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "postgres"}'
+        GenerateStringKey: "password"
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\'
+
+  AuroraCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-postgresql
+      DatabaseName: postgres
+      MasterUsername: 
+        !Join [ "", [ "{{resolve:secretsmanager:", !Ref DBSecret, ":SecretString:username}}" ] ]
+      MasterUserPassword: 
+        !Join [ "", [ "{{resolve:secretsmanager:", !Ref DBSecret, ":SecretString:password}}" ] ]
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0.5
+        MaxCapacity: 1.0
+      StorageEncrypted: false
+      Port: 5432
+      VpcSecurityGroupIds:
+        - !Ref DbSecurityGroup
+      DBSubnetGroupName: !Ref POCDBSubnetGroup # <--- ใช้ Subnet Group ใหม่
+
+  AuroraInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref AuroraCluster
+      Engine: aurora-postgresql
+      DBInstanceClass: db.serverless
+      PubliclyAccessible: true # เปิด Public เพื่อให้ Lambda (ที่อยู่นอก VPC) ยิงเข้ามาได้
+
+  # ==================================================================
+  # 3. FUNCTION
+  # ==================================================================
+  LayeredBadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: layered-bad-function/
+      Handler: app.handler
+      Events:
+        LayeredApi:
+          Type: Api
+          Properties:
+            Path: /layered-bad
+            Method: get
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        EntryPoints: [app.mjs]
+        External:
+          - dd-trace
+
+Outputs:
+  ApiUrl:
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/layered-bad"
