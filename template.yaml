@@ -167,6 +167,25 @@ Resources:
         EntryPoints: [app.mjs]
         External:
           - dd-trace
+  CreateUserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: layered-bad-function/
+      Handler: app.postHandler   # ชี้ไปที่ postHandler
+      Events:
+        CreateUserApi:
+          Type: Api
+          Properties:
+            Path: /users        # URL จะเป็น /Prod/users
+            Method: post        # HTTP POST
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        EntryPoints: [app.mjs]
+        External:
+          - dd-trace
 
 Outputs:
   ApiUrl:

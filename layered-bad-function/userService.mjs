@@ -16,4 +16,19 @@ export class UserService {
 
         return result;
     }
+    static async createUser(userData) {
+        console.log("🚀 [Service] Creating User:", userData);
+        
+        const sql = 'INSERT INTO users(name, email) VALUES($1, $2) RETURNING *';
+        const values = [userData.name, userData.email];
+
+        try {
+            // เรียกใช้ Helper
+            const result = await DBConnectionHelper.query(sql, values);
+            return result.rows[0];
+        } catch (error) {
+            console.error("Error creating user:", error);
+            throw error;
+        }
+    }
 }
