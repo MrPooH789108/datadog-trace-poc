@@ -186,6 +186,25 @@ Resources:
         EntryPoints: [app.mjs]
         External:
           - dd-trace
+  SetupTableFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: layered-bad-function/
+      Handler: app.setupHandler  # ชี้ไปที่ฟังก์ชันใหม่ที่เราเพิ่งเขียน
+      Events:
+        SetupApi:
+          Type: Api
+          Properties:
+            Path: /setup        # เรียกผ่าน /Prod/setup
+            Method: get
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        EntryPoints: [app.mjs]
+        External:
+          - dd-trace
 
 Outputs:
   ApiUrl:

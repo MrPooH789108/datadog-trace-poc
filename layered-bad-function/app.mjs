@@ -1,5 +1,6 @@
 // 👇 Import Service (ตัวจุดชนวน Import Chain)
 import { UserService } from './userService.mjs';
+import { DBConnectionHelper } from './db.mjs';
 
 console.log("🏁 [Handler] App Module Loaded");
 
@@ -53,6 +54,34 @@ export const postHandler = async (event) => {
         return {
             statusCode: 500,
             body: JSON.stringify({ message: err.message })
+        };
+    }
+};
+export const setupHandler = async (event) => {
+    console.log("🛠️ [Setup] Creating Table...");
+
+    const createTableSQL = `
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(100),
+            email VARCHAR(100),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    `;
+
+    try {
+        // เรียกใช้ Helper ตัวเดิมเพื่อรันคำสั่ง SQL
+        await DBConnectionHelper.query(createTableSQL);
+        
+        return {
+            statusCode: 200,
+            body: JSON.stringify({ message: "Table 'users' created successfully!" })
+        };
+    } catch (err) {
+        console.error(err);
+        return {
+            statusCode: 500,
+            body: JSON.stringify({ error: err.message })
         };
     }
 };
