@@ -1,14 +1,18 @@
-// 👇 Import Service (ตัวจุดชนวน Import Chain)
 import { UserService } from './userService.mjs';
+// Import Helper เข้ามาเพื่อใช้ใน setupHandler 
+// และเพื่อให้มั่นใจว่า Global Constructor ถูกรันแน่นอน
 import { DBConnectionHelper } from './db.mjs';
 
-console.log("🏁 [Handler] App Module Loaded");
+console.log("🏁 [Handler] App Module Loaded (Global Scope Executed)");
 
+// 1. GET Handler: ทดสอบ processFlow (เจอ Trace ขาด)
 export const handler = async (event) => {
-    console.log("🎯 [Handler] Invocation Started (Trace ID available now)");
+    console.log("🎯 [Handler] GET Invocation Started");
 
     try {
         // เรียกใช้ Service Logic
+        // -> วิ่งไปเรียก DBConnectionHelper.execute
+        // -> เจอ Trace ขาด + Connection Leak
         const data = await UserService.processFlow();
         
         return {
@@ -19,18 +23,26 @@ export const handler = async (event) => {
             })
         };
     } catch (err) {
-        console.error(err);
-        return { statusCode: 500, body: err.message };
+        console.error("💥 [Handler Error]", err);
+        return { 
+            statusCode: 500, 
+            body: JSON.stringify({ 
+                error: err.message,
+                hint: "Check if Connection Pool is exhausted (Timeout)?" 
+            }) 
+        };
     }
 };
+
+// 2. POST Handler: ทดสอบ createUser (เจอ Trace ขาด + Connection Leak)
 export const postHandler = async (event) => {
     console.log("📥 [POST Handler] Received Request");
 
     try {
-        // Parse Body
-        const body = JSON.parse(event.body);
+        // Parse Body (กันเหนียวเผื่อ body เป็น null)
+        const body = event.body ? JSON.parse(event.body) : {};
         
-        // Validate Input นิดหน่อย
+        // Validate Input
         if (!body.name || !body.email) {
             return {
                 statusCode: 400,
@@ -39,6 +51,8 @@ export const postHandler = async (event) => {
         }
 
         // เรียก Service
+        // -> วิ่งไปเรียก DBConnectionHelper.query
+        // -> เจอ Trace ขาด + Connection Leak
         const newUser = await UserService.createUser(body);
 
         return {
@@ -50,13 +64,18 @@ export const postHandler = async (event) => {
         };
 
     } catch (err) {
-        console.error(err);
+        console.error("💥 [POST Error]", err);
         return {
             statusCode: 500,
-            body: JSON.stringify({ message: err.message })
+            body: JSON.stringify({ 
+                message: err.message,
+                hint: "Did the DB timeout?"
+            })
         };
     }
 };
+
+// 3. Setup Handler: สร้างตาราง (ใช้ DB Helper โดยตรง)
 export const setupHandler = async (event) => {
     console.log("🛠️ [Setup] Creating Table...");
 
@@ -71,6 +90,7 @@ export const setupHandler = async (event) => {
 
     try {
         // เรียกใช้ Helper ตัวเดิมเพื่อรันคำสั่ง SQL
+        // (Method query นี้เราเพิ่งเพิ่มเข้าไปใน db.mjs)
         await DBConnectionHelper.query(createTableSQL);
         
         return {
@@ -78,7 +98,7 @@ export const setupHandler = async (event) => {
             body: JSON.stringify({ message: "Table 'users' created successfully!" })
         };
     } catch (err) {
-        console.error(err);
+        console.error("💥 [Setup Error]", err);
         return {
             statusCode: 500,
             body: JSON.stringify({ error: err.message })

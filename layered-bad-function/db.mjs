@@ -1,65 +1,79 @@
 import pg from 'pg';
 const { Pool } = pg;
 
-console.log("🔥 [Helper: DB] Module Loaded... Starting Phantom Queue");
+class DatabaseConnectionHelperClass {
+    constructor() {
+        // 🚨 [จุดตายที่ 1: Trace ขาด]
+        // Global Scope Init -> สร้าง Pool ตอนที่ยังไม่มี Trace ID
+        console.log("🔥 [Helper] Global Constructor Init - Creating Pool Promise...");
+        this.poolPromise = this.connect(); 
+    }
 
-// 1. สร้าง Pool แบบ Global (ตามปกติ)
-const pool = new Pool({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    port: process.env.DB_PORT,
-    ssl: { rejectUnauthorized: false }
-});
-
-// 2. สร้างคิวสำหรับฝากงาน
-const jobQueue = [];
-
-// 3. 💥 สร้าง Loop ผีสิง (ทำงานแยกจาก Request Context แน่นอน)
-// Loop นี้ถูกสร้างตอน Init ดังนั้นมันจะไม่รู้เรื่อง Trace ID ของ Request ใดๆ ทั้งสิ้น
-setInterval(async () => {
-    if (jobQueue.length > 0) {
-        // หยิบงานออกมาทำ
-        const job = jobQueue.shift();
+    async connect() {
+        // จำลอง delay
+        await new Promise(resolve => setTimeout(resolve, 100));
         
-        console.log("👻 [Phantom Loop] Processing job in detached context...");
+        console.log("🔌 [Helper] Pool Created (in Global Context)");
+        return new Pool({
+            host: process.env.DB_HOST,
+            user: process.env.DB_USER,
+            password: process.env.DB_PASSWORD,
+            database: process.env.DB_NAME,
+            port: process.env.DB_PORT,
+            ssl: { rejectUnauthorized: false },
+            max: 2, // ⚠️ ตั้งน้อยๆ ให้เห็น Timeout เร็วๆ
+            connectionTimeoutMillis: 2000
+        });
+    }
+
+    // 1. Method execute (สำหรับ Transaction / Callback)
+    async execute(callback) {
+        const pool = await this.poolPromise;
         
+        console.log("⏳ [Helper: execute] Waiting for client...");
+        const client = await pool.connect(); 
+        console.log("🟢 [Helper: execute] Client acquired!");
+
         try {
-            const client = await pool.connect();
-            try {
-                // รัน query ของลูกค้าใน Context ที่ว่างเปล่า
-                const result = await job.callback(client);
-                job.resolve(result); // ส่งผลลัพธ์กลับไปให้ Handler
-            } finally {
-                client.release();
-            }
-        } catch (err) {
-            job.reject(err);
+            console.log("🔄 [Transaction] BEGIN");
+            await client.query('BEGIN');
+
+            const result = await callback(client);
+
+            console.log("✅ [Transaction] COMMIT");
+            await client.query('COMMIT');
+            
+            return result;
+        } catch (error) {
+            console.error("❌ [Transaction] ROLLBACK", error.message);
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            // 💀 [Connection Leak] Comment ทิ้งไว้เหมือนลูกค้า
+            // client.release(); 
+            console.warn("⚠️ [Leak] client.release() SKIPPED in execute!");
         }
     }
-}, 50); // เช็คงานทุกๆ 50ms
 
-export const DBConnectionHelper = {
-    // ฟังก์ชันนี้หน้าตาเหมือนเดิม Caller ใช้ await ได้ปกติ
-    execute: (callback) => {
-        return new Promise((resolve, reject) => {
-            // แทนที่จะรันเลย เราฝากงานไว้ในคิว แล้วให้ Loop ผีสิงมาหยิบไป
-            jobQueue.push({ callback, resolve, reject });
-        });
-    },
+    // 2. Method query (เพิ่มอันนี้มาเพื่อให้ createUser ของคุณทำงานได้)
+    async query(text, params) {
+        const pool = await this.poolPromise;
+        
+        console.log("⏳ [Helper: query] Waiting for client...");
+        const client = await pool.connect();
+        console.log("🟢 [Helper: query] Client acquired!");
 
-    // ฟังก์ชัน Query แบบปกติ (ก็ฝากงานเหมือนกัน)
-    query: (text, params) => {
-        return new Promise((resolve, reject) => {
-            jobQueue.push({
-                callback: async (client) => {
-                    const res = await client.query(text, params);
-                    return res;
-                },
-                resolve,
-                reject
-            });
-        });
+        try {
+            // รัน Query ปกติ
+            const result = await client.query(text, params);
+            return result;
+        } finally {
+            // 💀 [Connection Leak] Comment ทิ้งไว้เช่นกัน
+            // client.release();
+            console.warn("⚠️ [Leak] client.release() SKIPPED in query!");
+        }
     }
-};
+}
+
+// ✅ Export ชื่อให้ตรงกับที่คุณใช้ใน userService
+export const DBConnectionHelper = new DatabaseConnectionHelperClass();
