@@ -10,7 +10,7 @@ Globals:
     Environment:
       Variables:
         DD_ENV: serverless
-        DD_SERVICE: layered-bad-service
+        # DD_SERVICE: layered-bad-service
         DB_HOST: !GetAtt AuroraCluster.Endpoint.Address
         DB_USER: 
           !Join [ "", [ "{{resolve:secretsmanager:", !Ref DBSecret, ":SecretString:username}}" ] ]
