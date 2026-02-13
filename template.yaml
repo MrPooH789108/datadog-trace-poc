@@ -207,5 +207,14 @@ Resources:
           - dd-trace
 
 Outputs:
-  ApiUrl:
+  LayeredApiUrl:
+    Description: "API for Disconnected Trace Demo (GET)"
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/layered-bad"
+  
+  CreateUserApiUrl:
+    Description: "API for Connection Leak Demo (POST)"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/users"
+
+  SetupApiUrl:
+    Description: "API for creating table (GET)"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/setup"
