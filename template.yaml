@@ -157,7 +157,7 @@ Resources:
       Handler: app.handler
       Environment:
         Variables:
-          DD_SERVICE: layered-bad-get-service # <--- เพิ่มตรงนี้
+          DD_SERVICE: layered-bad-get-service-per_request # <--- เพิ่มตรงนี้
       Events:
         LayeredApi:
           Type: Api
@@ -180,7 +180,7 @@ Resources:
       Handler: app.postHandler
       Environment:
         Variables:
-          DD_SERVICE: layered-bad-create-service # <--- เพิ่มตรงนี้
+          DD_SERVICE: layered-bad-create-service-per_request # <--- เพิ่มตรงนี้
       Events:
         CreateUserApi:
           Type: Api
@@ -203,7 +203,7 @@ Resources:
       Handler: app.setupHandler
       Environment:
         Variables:
-          DD_SERVICE: layered-bad-setup-service # <--- เพิ่มตรงนี้
+          DD_SERVICE: layered-bad-setup-service-per_request # <--- เพิ่มตรงนี้
       Events:
         SetupApi:
           Type: Api
