@@ -4,23 +4,20 @@ const { Pool } = pg;
 class DatabaseConnectionHelperClass {
     constructor() {
         console.log("🔥 [Helper] Global Constructor Init");
-        // ลูกค้ายังคงคาค้างบรรทัดนี้ไว้ แม้จะไม่ได้ใช้ในโหมด Per Request ก็ตาม
+        // ลูกค้ายังคงคาค้างบรรทัดนี้ไว้
         this.client = this.connect(); 
     }
 
     async connect() {
         await new Promise(resolve => setTimeout(resolve, 100)); 
-        console.log("🔌 [Helper] Global Pool Created (แต่ไม่ได้ใช้ในโหมดนี้)");
+        console.log("🔌 [Helper] Global Pool Created (แต่ไม่ได้ใช้)");
         return new Pool({ /* ... config ... */ });
     }
 
     async execute(callback) {
-        // =========================================================
-        // ✅ เปิดใช้งานโหมด PER REQUEST จาก "ตัวแปร pool" (บรรทัด 119 ในรูป)
-        // =========================================================
-        console.log("⚠️ [Helper] Creating a BRAND NEW POOL for this specific request! (ลูกค้าสไตล์)");
+        console.log("⚠️ [Helper] Creating a BRAND NEW POOL for execute! (ลูกค้าสไตล์)");
         
-        // นี่เลยครับ! ตัวแปร pool มาจากการ new ขึ้นมาใหม่ดื้อๆ ในเมธอดเลย
+        // 🚨 สร้าง Pool ก้อนใหม่แกะกล่องสำหรับ Request นี้โดยเฉพาะ
         const pool = new Pool({
             host: process.env.DB_HOST,
             user: process.env.DB_USER,
@@ -33,39 +30,54 @@ class DatabaseConnectionHelperClass {
         });
 
         // --- global connection ---
-        // 🛑 (คอมเมนต์ปิดไว้ ตามรูปเป๊ะ)
         // const client = await this.client; 
         
         // --- per request ---
         console.log("⏳ [Helper: execute] Waiting for client from local pool...");
-        // ✅ เปิดใช้งานบรรทัดที่คุณวงแดงไว้! มันจะดึงค่าจากตัวแปร pool ข้างบนนี้แหละ
         const client = await pool.connect(); 
-        
         console.log("🟢 [Helper: execute] Database Connected.");
 
         try {
-            console.log("🔄 [Transaction] BEGIN");
             await client.query('BEGIN'); 
-
             const result = await callback(client); 
-
-            console.log("✅ [Transaction] COMMIT");
             await client.query('COMMIT'); 
-            
             return result;
         } catch (error) {
-            console.error("❌ [Transaction] ROLLBACK", error.message);
             await client.query('ROLLBACK');
             throw error;
         } finally {
             // --- per request ---
-            // ✅ เปิดใช้งานคืน Connection ให้ Local Pool
             client.release(); 
             console.log("🔓 [Helper] Client released back to local pool.");
-            
-            // 💀 หายนะที่แท้จริง: ลูกค้าแค่ release() คืน Connection... 
-            // แต่ไม่ได้สั่ง pool.end() เพื่อทำลาย Pool ก้อนนี้ทิ้ง! 
-            // ถ้ายิงมา 100 Request ก็จะมี Pool ค้างใน Memory 100 ก้อน (Memory Leak ชัวร์ๆ)
+        }
+    }
+
+    // 🟢 เติมเมธอดนี้กลับมาแล้วครับ! /setup จะได้ทำงานได้
+    async query(text, params) {
+        console.log("⚠️ [Helper] Creating a BRAND NEW POOL for query! (ลูกค้าสไตล์)");
+        
+        // 🚨 สร้าง Pool ใหม่อีกก้อนนึงเลย (เพื่อให้เหมือนสไตล์ลูกค้าที่ทำ Per Request)
+        const pool = new Pool({
+            host: process.env.DB_HOST,
+            user: process.env.DB_USER,
+            password: process.env.DB_PASSWORD,
+            database: process.env.DB_NAME,
+            port: process.env.DB_PORT,
+            ssl: { rejectUnauthorized: false },
+            max: 2, 
+            connectionTimeoutMillis: 2000
+        });
+
+        console.log("⏳ [Helper: query] Waiting for client from local pool...");
+        const client = await pool.connect();
+        console.log("🟢 [Helper: query] Database Connected.");
+
+        try {
+            const result = await client.query(text, params);
+            return result;
+        } finally {
+            client.release();
+            console.log("🔓 [Helper] Client released back to local pool.");
         }
     }
 }
