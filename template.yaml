@@ -10,9 +10,6 @@ Globals:
     Environment:
       Variables:
         DD_ENV: serverless
-        # เอา DD_SERVICE ออกจากตรงนี้ เพราะเราจะไปกำหนดแยกในแต่ละ Function แทน
-        DD_SERVERLESS_APPSEC_ENABLED: true
-        DD_IAST_ENABLED: true
         DB_HOST: !GetAtt AuroraCluster.Endpoint.Address
         DB_USER: 
           !Join [ "", [ "{{resolve:secretsmanager:", !Ref DBSecret, ":SecretString:username}}" ] ]
