@@ -4,12 +4,14 @@ const { Pool } = pg;
 class DatabaseConnectionHelperClass {
     constructor() {
         console.log("🔥 [Helper] Global Constructor Init");
-        // 🚨 [ตามภาพเป๊ะ] ลูกค้าใช้ชื่อตัวแปรนี้เก็บ Promise ของ Pool
+        // สร้าง Promise ของ Pool เก็บไว้ตั้งแต่ตอน Cold Start
         this.client = this.connect(); 
     }
 
     async connect() {
+        // จำลอง delay ในการดึงค่าหรือเซ็ตอัป
         await new Promise(resolve => setTimeout(resolve, 100));
+        
         console.log("🔌 [Helper] Pool Created");
         return new Pool({
             host: process.env.DB_HOST,
@@ -18,46 +20,52 @@ class DatabaseConnectionHelperClass {
             database: process.env.DB_NAME,
             port: process.env.DB_PORT,
             ssl: { rejectUnauthorized: false },
-            max: 2, // ⚠️ ตั้งน้อยๆ ให้ Timeout ไวๆ
+            max: 2, // ตั้งไว้ 2 เพื่อเทส Connection เต็ม
             connectionTimeoutMillis: 2000
         });
     }
 
     async execute(callback) {
         // =========================================================
-        // 🛑 โหมดที่ 1: แบบ GLOBAL CONNECTION (แบบของลูกค้า)
+        // 🛑 โหมดที่ 1: แบบ GLOBAL CONNECTION (เปิดใช้งานอยู่)
+        // จำลองบั๊กของลูกค้า: Trace ขาด + Transaction ไม่ล็อก
         // =========================================================
-        /*
         console.log("⚠️ [Mode] Running in GLOBAL CONNECTION mode");
         
         // --- global connection ---
-        // 🚨 [หายนะเรื่องชื่อ] เอา local variable ชื่อ client มารับก้อน Pool!
         const client = await this.client; 
         
+        // --- per request ---
+        // const client = await pool.connect();
+        
+        console.log("🟢 [Helper: execute] Database Connected.");
+
         try {
+            console.log("🔄 [Transaction] BEGIN");
             await client.query('BEGIN'); 
+            
             const result = await callback(client); 
+            
+            console.log("✅ [Transaction] COMMIT");
             await client.query('COMMIT'); 
+            
             return result;
         } catch (error) {
+            console.error("❌ [Transaction] ROLLBACK", error.message);
             await client.query('ROLLBACK');
             throw error;
         } finally {
             // --- per request ---
-            // 💀 ลูกค้าคอมเมนต์ทิ้ง เพราะถ้าเปิดมันจะ Error (Pool ไม่มี method release)
             // client.release(); 
             console.warn("⚠️ [Leak] client.release() SKIPPED!");
         }
-        */
-
 
         // =========================================================
-        // ✅ โหมดที่ 2: แบบ PER REQUEST (ที่ควรจะเป็น)
+        // ✅ โหมดที่ 2: แบบ PER REQUEST (คอมเมนต์ปิดไว้)
         // =========================================================
-        // /*
+        /*
         console.log("✅ [Mode] Running in PER REQUEST mode");
         
-        // 🟢 เปลี่ยนมารับค่าจาก this.client ให้ตรงกับ Constructor
         const pool = await this.client; 
         
         // --- per request ---
@@ -78,7 +86,23 @@ class DatabaseConnectionHelperClass {
             client.release(); 
             console.log("🔓 [Helper] Client successfully released back to pool.");
         }
-        // */
+        */
+    }
+
+    async query(text, params) {
+        // --- global connection ---
+        const client = await this.client;
+        
+        // --- per request ---
+        // const client = await pool.connect();
+
+        try {
+            const result = await client.query(text, params);
+            return result;
+        } finally {
+            // --- per request ---
+            // client.release();
+        }
     }
 }
 
