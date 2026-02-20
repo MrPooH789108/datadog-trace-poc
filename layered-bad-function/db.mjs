@@ -3,17 +3,14 @@ const { Pool } = pg;
 
 class DatabaseConnectionHelperClass {
     constructor() {
-        // 🚨 [จุดตายที่ 1: Trace ขาด]
-        // Global Scope Init -> สร้าง Pool ตอนที่ยังไม่มี Trace ID
-        console.log("🔥 [Helper] Global Constructor Init - Creating Pool Promise...");
+        console.log("🔥 [Helper] Global Constructor Init");
+        // 🚨 [ตามภาพเป๊ะ] ลูกค้าใช้ชื่อตัวแปรนี้เก็บ Promise ของ Pool
         this.client = this.connect(); 
     }
 
     async connect() {
-        // จำลอง delay
         await new Promise(resolve => setTimeout(resolve, 100));
-        
-        console.log("🔌 [Helper] Pool Created (in Global Context)");
+        console.log("🔌 [Helper] Pool Created");
         return new Pool({
             host: process.env.DB_HOST,
             user: process.env.DB_USER,
@@ -21,60 +18,68 @@ class DatabaseConnectionHelperClass {
             database: process.env.DB_NAME,
             port: process.env.DB_PORT,
             ssl: { rejectUnauthorized: false },
-            max: 2, // ⚠️ ตั้งน้อยๆ ให้เห็น Timeout เร็วๆ
+            max: 2, // ⚠️ ตั้งน้อยๆ ให้ Timeout ไวๆ
             connectionTimeoutMillis: 2000
         });
     }
 
-    // 1. Method execute (สำหรับ Transaction / Callback)
     async execute(callback) {
-        // const pool = await this.poolPromise;
-        const client = await this.client;
+        // =========================================================
+        // 🛑 โหมดที่ 1: แบบ GLOBAL CONNECTION (แบบของลูกค้า)
+        // =========================================================
+        /*
+        console.log("⚠️ [Mode] Running in GLOBAL CONNECTION mode");
         
-        console.log("⏳ [Helper: execute] Waiting for client...");
-        // const client = await pool.connect(); 
-        console.log("🟢 [Helper: execute] Client acquired!");
-
+        // --- global connection ---
+        // 🚨 [หายนะเรื่องชื่อ] เอา local variable ชื่อ client มารับก้อน Pool!
+        const client = await this.client; 
+        
         try {
-            console.log("🔄 [Transaction] BEGIN");
-            await client.query('BEGIN');
-
-            const result = await callback(client);
-
-            console.log("✅ [Transaction] COMMIT");
-            await client.query('COMMIT');
-            
+            await client.query('BEGIN'); 
+            const result = await callback(client); 
+            await client.query('COMMIT'); 
             return result;
         } catch (error) {
-            console.error("❌ [Transaction] ROLLBACK", error.message);
             await client.query('ROLLBACK');
             throw error;
         } finally {
-            // 💀 [Connection Leak] Comment ทิ้งไว้เหมือนลูกค้า
+            // --- per request ---
+            // 💀 ลูกค้าคอมเมนต์ทิ้ง เพราะถ้าเปิดมันจะ Error (Pool ไม่มี method release)
             // client.release(); 
-            console.warn("⚠️ [Leak] client.release() SKIPPED in execute!");
+            console.warn("⚠️ [Leak] client.release() SKIPPED!");
         }
-    }
+        */
 
-    // 2. Method query (เพิ่มอันนี้มาเพื่อให้ createUser ของคุณทำงานได้)
-    async query(text, params) {
-        const pool = await this.poolPromise;
+
+        // =========================================================
+        // ✅ โหมดที่ 2: แบบ PER REQUEST (ที่ควรจะเป็น)
+        // =========================================================
+        // /*
+        console.log("✅ [Mode] Running in PER REQUEST mode");
         
-        console.log("⏳ [Helper: query] Waiting for client...");
-        const client = await pool.connect();
-        console.log("🟢 [Helper: query] Client acquired!");
+        // 🟢 เปลี่ยนมารับค่าจาก this.client ให้ตรงกับ Constructor
+        const pool = await this.client; 
+        
+        // --- per request ---
+        console.log("⏳ [Helper] Waiting for dedicated client...");
+        const client = await pool.connect(); 
+        console.log("🟢 [Helper] Dedicated Client acquired!");
 
         try {
-            // รัน Query ปกติ
-            const result = await client.query(text, params);
+            await client.query('BEGIN'); 
+            const result = await callback(client); 
+            await client.query('COMMIT'); 
             return result;
+        } catch (error) {
+            await client.query('ROLLBACK'); 
+            throw error;
         } finally {
-            // 💀 [Connection Leak] Comment ทิ้งไว้เช่นกัน
-            // client.release();
-            console.warn("⚠️ [Leak] client.release() SKIPPED in query!");
+            // --- per request ---
+            client.release(); 
+            console.log("🔓 [Helper] Client successfully released back to pool.");
         }
+        // */
     }
 }
 
-// ✅ Export ชื่อให้ตรงกับที่คุณใช้ใน userService
 export const DBConnectionHelper = new DatabaseConnectionHelperClass();
