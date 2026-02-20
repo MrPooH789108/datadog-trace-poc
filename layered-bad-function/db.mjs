@@ -9,7 +9,7 @@ class DatabaseConnectionHelperClass {
         this.client = this.connect(); 
     }
 
-    /*async connect() {
+    async connect() {
         // จำลอง delay
         await new Promise(resolve => setTimeout(resolve, 100));
         
@@ -24,24 +24,15 @@ class DatabaseConnectionHelperClass {
             max: 2, // ⚠️ ตั้งน้อยๆ ให้เห็น Timeout เร็วๆ
             connectionTimeoutMillis: 2000
         });
-    }*/
+    }
 
     // 1. Method execute (สำหรับ Transaction / Callback)
     async execute(callback) {
-
-        const pool = new Pool({
-            host: process.env.DB_HOST,
-            user: process.env.DB_USER,
-            password: process.env.DB_PASSWORD,
-            database: process.env.DB_NAME,
-            port: process.env.DB_PORT,
-            ssl: { rejectUnauthorized: false },
-            connectionTimeoutMillis: 2000
-        })
         // const pool = await this.poolPromise;
-        // const client = await this.client;
+        const client = await this.client;
         
-        const client = await pool.connect(); 
+        console.log("⏳ [Helper: execute] Waiting for client...");
+        // const client = await pool.connect(); 
         console.log("🟢 [Helper: execute] Client acquired!");
 
         try {
