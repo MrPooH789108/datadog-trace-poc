@@ -1,0 +1,7 @@
+{
+    "datadog.ust.environment.setup.focusedName": "serverless",
+    "datadog.ust.service.setup.linkedNames": [
+        "datadog-trace-poc-layeredbadfunction-rtkakwfoxmvq",
+        "datadog-trace-poc-setuptablefunction-knhbk0qt9pr7"
+    ]
+}
