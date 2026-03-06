@@ -1,24 +1,26 @@
-import { UserService } from './userService.mjs';
-// Import Helper เข้ามาเพื่อใช้ใน setupHandler 
-// และเพื่อให้มั่นใจว่า Global Constructor ถูกรันแน่นอน
 import { DBConnectionHelper } from './db.mjs';
 
 console.log("🏁 [Handler] App Module Loaded (Global Scope Executed)");
 
+// =========================================================
 // 1. GET Handler: ทดสอบ processFlow (เจอ Trace ขาด)
+// =========================================================
 export const handler = async (event) => {
     console.log("🎯 [Handler] GET Invocation Started");
+    console.log("🚀 [Service Flow] Process Flow Start");
 
     try {
-        // เรียกใช้ Service Logic
-        // -> วิ่งไปเรียก DBConnectionHelper.execute
-        // -> เจอ Trace ขาด + Connection Leak
-        const data = await UserService.processFlow();
+        // ✅ เรียก execute (Trace ขาด + Leak) แทนการเรียก UserService
+        const data = await DBConnectionHelper.execute(async (client) => {
+            console.log("   -> Executing Query...");
+            const res = await client.query('SELECT NOW() as now, pg_sleep(1)'); 
+            return res.rows[0];
+        });
         
         return {
             statusCode: 200,
             body: JSON.stringify({ 
-                message: "Simulated Customer Pattern (Handler -> Service -> Helper)",
+                message: "Simulated Customer Pattern (Fat Handler -> Helper)",
                 data: data 
             })
         };
@@ -34,7 +36,9 @@ export const handler = async (event) => {
     }
 };
 
+// =========================================================
 // 2. POST Handler: ทดสอบ createUser (เจอ Trace ขาด + Connection Leak)
+// =========================================================
 export const postHandler = async (event) => {
     console.log("📥 [POST Handler] Received Request");
 
@@ -50,16 +54,19 @@ export const postHandler = async (event) => {
             };
         }
 
-        // เรียก Service
-        // -> วิ่งไปเรียก DBConnectionHelper.query
-        // -> เจอ Trace ขาด + Connection Leak
-        const newUser = await UserService.createUser(body);
+        console.log("🚀 [Service Flow] Creating User:", body);
+        
+        const sql = 'INSERT INTO users(name, email) VALUES($1, $2) RETURNING *';
+        const values = [body.name, body.email];
+
+        // ✅ เรียก query (Trace ขาด + Leak) แทนการเรียก UserService
+        const newUser = await DBConnectionHelper.query(sql, values);
 
         return {
             statusCode: 201, // Created
             body: JSON.stringify({
                 message: "User created successfully",
-                data: newUser
+                data: newUser.rows[0] // ดึงข้อมูลที่เพิ่ง insert ออกมาแสดง
             })
         };
 
@@ -75,7 +82,9 @@ export const postHandler = async (event) => {
     }
 };
 
+// =========================================================
 // 3. Setup Handler: สร้างตาราง (ใช้ DB Helper โดยตรง)
+// =========================================================
 export const setupHandler = async (event) => {
     console.log("🛠️ [Setup] Creating Table...");
 
@@ -90,7 +99,6 @@ export const setupHandler = async (event) => {
 
     try {
         // เรียกใช้ Helper ตัวเดิมเพื่อรันคำสั่ง SQL
-        // (Method query นี้เราเพิ่งเพิ่มเข้าไปใน db.mjs)
         await DBConnectionHelper.query(createTableSQL);
         
         return {
