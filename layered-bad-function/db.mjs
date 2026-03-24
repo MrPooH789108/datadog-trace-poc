@@ -1,5 +1,10 @@
 import pg from 'pg';
+import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
+
 const { Pool } = pg;
+
+// สร้าง Client สำหรับคุยกับ Secrets Manager (ใช้ Region ปัจจุบันของ Lambda)
+const secretsClient = new SecretsManagerClient({ region: process.env.AWS_REGION || 'ap-southeast-1' });
 
 class DatabaseConnectionHelperClass {
     constructor() {
@@ -12,17 +17,34 @@ class DatabaseConnectionHelperClass {
         // จำลอง delay ในการดึงค่าหรือเซ็ตอัป
         await new Promise(resolve => setTimeout(resolve, 100));
         
-        console.log("🔌 [Helper] Pool Created");
-        return new Pool({
-            host: process.env.DB_HOST,
-            user: process.env.DB_USER,
-            password: process.env.DB_PASSWORD,
-            database: process.env.DB_NAME,
-            port: process.env.DB_PORT,
-            ssl: { rejectUnauthorized: false },
-            max: 2, // ตั้งไว้ 2 เพื่อเทส Connection เต็ม
-            connectionTimeoutMillis: 2000
-        });
+        try {
+            console.log("🔐 [Helper] กำลังดึงรหัสผ่านจาก AWS Secrets Manager...");
+            
+            // ดึงค่า Secret โดยใช้ชื่อ Secret จาก Environment Variable (ที่ตั้งใน template.yaml)
+            const secretName = process.env.SECRET_NAME; 
+            const response = await secretsClient.send(
+                new GetSecretValueCommand({ SecretId: secretName, VersionStage: "AWSCURRENT" })
+            );
+            
+            // แปลงค่า String ที่ได้มาให้เป็น JSON Object
+            const secret = JSON.parse(response.SecretString);
+            console.log("🔓 [Helper] ดึง Secret สำเร็จ!");
+
+            console.log("🔌 [Helper] Pool Created");
+            return new Pool({
+                host: process.env.DB_HOST,
+                user: secret.username,       // 👈 เปลี่ยนมาใช้ค่าจาก Secrets Manager
+                password: secret.password,   // 👈 เปลี่ยนมาใช้ค่าจาก Secrets Manager
+                database: process.env.DB_NAME,
+                port: process.env.DB_PORT,
+                ssl: { rejectUnauthorized: false },
+                max: 2, // ตั้งไว้ 2 เพื่อเทส Connection เต็ม
+                connectionTimeoutMillis: 2000
+            });
+        } catch (error) {
+            console.error("❌ [Helper] Error fetching secret or creating pool:", error);
+            throw error;
+        }
     }
 
     async execute(callback) {
@@ -102,6 +124,7 @@ class DatabaseConnectionHelperClass {
         } finally {
             // --- per request ---
             // client.release();
+            console.warn("⚠️ [Leak] client.release() SKIPPED in query!");
         }
     }
 }

@@ -158,7 +158,11 @@ Resources:
       Handler: app.handler
       Environment:
         Variables:
-          DD_SERVICE: layered-bad-get-service # <--- เพิ่มตรงนี้
+          DD_SERVICE: layered-bad-get-service 
+          SECRET_NAME: !Ref DBSecret # <--- ส่งชื่อ Secret ไปให้โค้ด Node.js
+      Policies: # <--- อนุญาตให้ Lambda อ่าน Secret ตัวนี้ได้
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref DBSecret
       Events:
         LayeredApi:
           Type: Api
@@ -173,6 +177,8 @@ Resources:
         EntryPoints: [app.mjs]
         External:
           - dd-trace
+          - datadog-lambda-js
+          - "@aws-sdk/client-secrets-manager" # <--- ใช้ตัวที่มีใน Lambda เลย
 
   CreateUserFunction:
     Type: AWS::Serverless::Function
@@ -181,7 +187,11 @@ Resources:
       Handler: app.postHandler
       Environment:
         Variables:
-          DD_SERVICE: layered-bad-create-service # <--- เพิ่มตรงนี้
+          DD_SERVICE: layered-bad-create-service
+          SECRET_NAME: !Ref DBSecret
+      Policies:
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref DBSecret
       Events:
         CreateUserApi:
           Type: Api
@@ -196,6 +206,8 @@ Resources:
         EntryPoints: [app.mjs]
         External:
           - dd-trace
+          - datadog-lambda-js
+          - "@aws-sdk/client-secrets-manager"
 
   SetupTableFunction:
     Type: AWS::Serverless::Function
@@ -204,7 +216,11 @@ Resources:
       Handler: app.setupHandler
       Environment:
         Variables:
-          DD_SERVICE: layered-bad-setup-service # <--- เพิ่มตรงนี้
+          DD_SERVICE: layered-bad-setup-service
+          SECRET_NAME: !Ref DBSecret
+      Policies:
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref DBSecret
       Events:
         SetupApi:
           Type: Api
@@ -219,6 +235,8 @@ Resources:
         EntryPoints: [app.mjs]
         External:
           - dd-trace
+          - datadog-lambda-js
+          - "@aws-sdk/client-secrets-manager"
 
 Outputs:
   LayeredApiUrl:
